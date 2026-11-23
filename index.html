@@ -30,6 +30,7 @@ h2 i{font-style:normal;background:var(--acs);color:var(--ac);border-radius:99px;
 .ck{width:32px;height:32px;flex:none;border-radius:50%;border:2.5px solid var(--cc);display:grid;place-items:center;font-weight:900;color:var(--bg)}
 .dn .ck{background:var(--cc)}.dn .tt{text-decoration:line-through;color:var(--mut)}.dn{opacity:.75}
 .lk{font-size:13px;font-weight:800;color:var(--ac);background:var(--acs);border-radius:99px;padding:6px 12px;min-height:36px;display:grid;place-items:center;text-decoration:none}
+.lk[hidden]{display:none}
 .dl{width:36px;height:36px;color:var(--mut);font-size:17px}
 .sw{width:48px;height:28px;border-radius:14px;background:var(--ln);position:relative;flex:none}
 .sw::after{content:"";position:absolute;top:3px;inset-inline-start:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:inset-inline-start .15s}
@@ -166,17 +167,17 @@ async function setVoiceBlob(blob,recorded=false){const epoch=voice.epoch;if(!blo
 function audioDuration(blob){return new Promise(resolve=>{const a=document.createElement('audio'),url=URL.createObjectURL(blob);let timer;const done=v=>{clearTimeout(timer);a.removeAttribute('src');a.load();URL.revokeObjectURL(url);resolve(v);};a.preload='metadata';a.onloadedmetadata=()=>done(a.duration);a.onerror=()=>done(NaN);timer=setTimeout(()=>done(NaN),8000);a.src=url;});}
 function chooseVoice(input){const f=input.files[0];input.value='';if(!f)return;if(voice.rec||voice.busy)return voiceMessage('وقّف التسجيل الأول.');if(!f.type.startsWith('audio/')&&!/\.(webm|m4a|mp4|ogg|wav|mp3)$/i.test(f.name))return voiceMessage('اختار ملف صوتي.');setVoiceBlob(f);}
 async function toggleVoice(){
- if(voice.rec){voiceMessage('جاري إنهاء التسجيل…');voice.rec.stop();stopTracks();return;}
+ if(voice.rec){voice.busy=true;voiceMessage('جاري إنهاء التسجيل…');voice.rec.stop();stopTracks();return;}
  if(voice.busy)return;if(!voiceSupported())return voiceMessage('التسجيل المباشر مش متاح في المتصفح ده. اختار ملف صوتي أو جرّب متصفح أحدث.');
  if(voice.blob&&!confirm('تستبدل التسجيل الموجود بتسجيل جديد؟'))return;
- const epoch=voice.epoch;voice.busy=true;voiceMessage('اسمح باستخدام الميكروفون لبدء التسجيل…');
- try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});if(epoch!==voice.epoch){stream.getTracks().forEach(t=>t.stop());return;}voice.stream=stream;
+ const epoch=voice.epoch;voice.busy=true;voiceMessage('اسمح باستخدام الميكروفون لبدء التسجيل…');const permissionTimer=setTimeout(()=>{if(epoch===voice.epoch&&!voice.rec){clearVoice();voiceMessage('لسه مفيش إذن للميكروفون. اسمح له من إعدادات الموقع وجرب تاني، أو اختار ملف صوتي.');}},25000);
+ try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});clearTimeout(permissionTimer);if(epoch!==voice.epoch){stream.getTracks().forEach(t=>t.stop());return;}voice.stream=stream;
  const mime=['audio/webm;codecs=opus','audio/mp4','audio/ogg;codecs=opus','audio/webm'].find(t=>MediaRecorder.isTypeSupported(t));const rec=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);voice.rec=rec;voice.chunks=[];voice.busy=false;
  rec.ondataavailable=e=>{if(e.data.size)voice.chunks.push(e.data);if(voice.chunks.reduce((n,x)=>n+x.size,0)>2097152&&rec.state==='recording')rec.stop();};
  rec.onstop=()=>{if(epoch!==voice.epoch)return;const blob=new Blob(voice.chunks,{type:rec.mimeType||voice.chunks[0]?.type||'audio/webm'});voice.rec=null;voice.busy=false;stopTracks();setVoiceBlob(blob,true);};
  rec.onerror=()=>{if(epoch!==voice.epoch)return;clearVoice();voiceMessage('حصلت مشكلة في التسجيل. جرّب تاني أو اختار ملف صوتي.');};
  rec.start(1000);let left=15;voiceMessage('🔴 بسجّل… باقي '+N(left)+' ثانية');voice.countdown=setInterval(()=>{left--;voiceMessage('🔴 بسجّل… باقي '+N(Math.max(0,left))+' ثانية');},1000);voice.timer=setTimeout(()=>{if(voice.rec?.state==='recording'){voice.rec.stop();stopTracks();}},15000);
- }catch(e){if(epoch!==voice.epoch)return;voice.rec=null;voice.busy=false;stopTracks();voiceMessage(e.name==='NotAllowedError'?'اسمح بالميكروفون من إعدادات الموقع أو اختار ملف صوتي.':e.name==='NotFoundError'?'مفيش ميكروفون متاح. اختار ملف صوتي أو وصّل ميكروفون.':'تعذر بدء التسجيل. جرّب متصفح أحدث أو اختار ملف صوتي.');}
+ }catch(e){clearTimeout(permissionTimer);if(epoch!==voice.epoch)return;voice.rec=null;voice.busy=false;stopTracks();voiceMessage(e.name==='NotAllowedError'?'اسمح بالميكروفون من إعدادات الموقع أو اختار ملف صوتي.':e.name==='NotFoundError'?'مفيش ميكروفون متاح. اختار ملف صوتي أو وصّل ميكروفون.':'تعذر بدء التسجيل. جرّب متصفح أحدث أو اختار ملف صوتي.');}
 }
 const finishingVoice=new Set();
 async function finishVoiceTask(t){if(finishingVoice.has(t.id))return;if(!session||!cloudReady)return toast('استنى الاتصال بحسابك الأول');finishingVoice.add(t.id);try{await deleteAudio(t.audio.path);await req('/rest/v1/wraya_records?user_id=eq.'+session.user.id+'&kind=eq.tasks&id=eq.'+encodeURIComponent(t.id),{method:'DELETE'});delete pending['tasks|'+t.id];delete baseline['tasks|'+t.id];S.tasks=S.tasks.filter(x=>x.id!==t.id);save();render();toast('تمت، واتحذف التسجيل والمهمة نهائياً');}catch(e){toast('الحذف ما اكتملش. المهمة لسه موجودة، اتأكد من الإنترنت وجرّب تاني');}finally{finishingVoice.delete(t.id);}}
